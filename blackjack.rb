@@ -28,7 +28,7 @@ def generate_deck(ranks, colors, deck)
 end
 
 def begin_game(table, deck)
-  bets(table)
+  bets_phase(table)
   deal_initial_hand(table, deck)
 end
    
@@ -61,14 +61,16 @@ def nb_of_players()
   nb_of_players
 end
 
-def bets(table) 
+def bets_phase(table) 
   table.select {|participant| participant[:name] != 'Dealer'}.each do |player|
     begin
+      system 'clear'
       puts "You have #{player[:chips]} chips #{player[:name]}."
       print "How  much chips would you like to bet ? "
       answer = gets.chomp.to_i 
-      if answer >= player[:chips]
+      if answer > player[:chips]
         puts "Sorry, you don't have enough chips."
+        sleep 1
       end
     end until answer <= player[:chips]
   player[:chips] -= answer
@@ -76,10 +78,10 @@ def bets(table)
   end
 end
 
-def deal_initial_hand(table, deck) # initial deal
+def deal_initial_hand(table, deck)
   2.times do
     table.each do |participant|
-      participant[:hand].push(deck.pop) 
+      participant[:hand].push(deck.pop)
     end
   end
 end
@@ -99,29 +101,41 @@ end
 def player_turn(table, deck, participant, dealer_turn)
   number_of_aces_used = 0
   loop do
+    print_table(table, dealer_turn)
     if  total_value(participant) < 21
-      print_table(table, dealer_turn)
       puts "Your turn #{participant[:name]}."
-      puts "You have bet #{participant[:bet]}."
-      print 'hit or stay: '
+      print 'hit, stay or double: '
       answer = gets.chomp.downcase
       if answer == 'hit'
         hit(participant, deck)
-      elsif answer == 'stay'
-        print_table(table, dealer_turn)
-        set_final_situation(participant)
+      elsif answer == 'double'
+        double(participant, deck)
         break
-      end
+      elsif answer == 'stay'
+        break
+      end 
     elsif total_value(participant) == 21
       break
-    elsif check_for_aces(participant[:hand])
+    elsif check_for_aces(participant[:hand]) 
+# if the total_value of the hand is above 21 and the hand includes at least 'Ace', the optimize_total_value method 
+# will automatically select the best value(s) for those aces.
       optimize_total_value(participant)
     else 
       break # bust
     end
-  print_table(table, dealer_turn)
-  end 
+  end
   set_final_situation(participant)
+  print_table(table, dealer_turn)
+end
+
+def double (participant, deck)
+  if participant[:chips] >= participant[:bet]
+    participant[:chips] -= participant[:bet]
+    participant[:bet] *= 2
+    hit(participant, deck)
+  else
+    puts "Sorry, you don't have enough chips to double"
+  end
 end
 
 def dealer_turn(table, deck, participant, dealer_turn)
@@ -143,23 +157,7 @@ def dealer_turn(table, deck, participant, dealer_turn)
   set_final_situation(participant)
 end
 
-def set_final_situation(participant)
-  if total_value(participant) == 21 && participant[:hand].length == 2
-    puts "\t=> blackjack"
-    participant[:final_situation] = 'blackjack'
-  elsif total_value(participant) <= 21
-    puts "\t=> total_value: #{total_value(participant)}\n"
-    participant[:final_situation] = total_value(participant)
-  elsif total_value(participant) > 21
-    if participant[:name] != 'Dealer'
-      puts "\t=> you busted :("
-    else
-      puts "\t=> the dealer has busted"
-    end
-    participant[:final_situation] = 'busted'
-  end
-  participant[:tokens] = []
-end
+
 
 def hit(participant, deck)
   participant[:hand].push(deck.pop)
@@ -168,9 +166,6 @@ end
 def check_for_aces(hand)
   hand.any? {|card| card[:rank] == 'Ace'}
 end
-
-# bust_with_ace is a method that automatically reduces the total_value of an Ace owner if he busts.
-# thus, the game will automatically choose  the Ace value that maximizes his hand value within the 21 constraint.  
 
 def optimize_total_value(participant)
   number_of_aces = participant[:hand].count {|card| card[:rank] == 'Ace'}
@@ -189,27 +184,69 @@ end
 
 def print_table(table, dealer_turn)
   system 'clear'
-  big_separator
+  separator()
   table.each do |participant| # a participant can be a player or the dealer
-    puts "\n#{participant[:name]}'s hand:"
-    if participant[:name] == 'Dealer' && dealer_turn == false
-      binding.pry
-      puts "\t#{participant[:hand][0][:rank]} of #{participant[:hand][0][:color]}\n"
-      puts "\t**** hidden card ****"
-      puts "\t>> temporary value: #{card_value(participant[:hand][0])}"
+    if participant[:name] != 'Dealer'
+      print_player_hand(participant)
     else
-      participant[:hand].each do |card|
-        puts "\t#{card[:rank]} of #{card[:color]}\n"    
-      end
-      if participant[:final_situation] == ''
-        puts  "\t=> optimal value: #{total_value(participant)}"
-      else
-        puts "\t=> final situation: #{participant[:final_situation]}"
-      end
-    end
-    medium_separator()
+      print_dealer_hand(participant, dealer_turn)
+    end  
   end
-  big_separator()
+  separator()
+end
+
+def set_final_situation(participant) 
+  if total_value(participant) == 21 && participant[:hand].length == 2
+    participant[:final_situation] = 'blackjack'
+  elsif total_value(participant) <= 21
+    participant[:final_situation] = total_value(participant)
+  elsif total_value(participant) > 21
+    participant[:final_situation] = 'busted'
+  end
+end
+
+# def return_final_situation(participant) 
+#   if total_value(participant) == 21 && participant[:hand].length == 2
+#     final_situation = 'blackjack'
+#   elsif total_value(participant) <= 21
+#     final_situation = total_value(participant)
+#   elsif total_value(participant) > 21
+#     final_situation = 'busted'
+#   end
+#   return final_situation
+# end
+
+def print_player_hand(participant)
+  puts "\n#{participant[:name]}'s hand (bet: #{participant[:bet]}):"
+    print_total_hand(participant)  
+  puts "\t"
+end
+
+def print_dealer_hand(participant, dealer_turn)
+  separator()
+  puts "\nDealer's hand:"
+  if dealer_turn == false
+    print_partial_hand(participant)
+  else
+    print_total_hand(participant)
+  end
+end
+
+def print_total_hand(participant)
+  participant[:hand].each do |card|
+    puts "\t#{card[:rank]} of #{card[:color]}\n"    
+  end
+  if participant[:final_situation] == ''
+    puts  "\t=> optimal value: #{total_value(participant)}"
+  else
+    puts "\t=> final situation: #{participant[:final_situation]}"
+  end
+end
+
+def print_partial_hand(participant)
+    puts "\t#{participant[:hand][0][:rank]} of #{participant[:hand][0][:color]}\n"
+    puts "\t**** hidden card ****"
+    puts "\t>> temporary value: #{card_value(participant[:hand][0])}"
 end
 
 def card_value(card) 
@@ -248,7 +285,7 @@ def chip_distribution(table)
       when table.last[:final_situation] == 'blackjack'
         player_lost(table, player)
       when player[:final_situation] > table.last[:final_situation]
-  # From this elsif statement, both the player's and the dealer's final situations can only be integers
+      # From this when statement, both the player's and the dealer's final situations can only be integers
         player_won(table, player)
       when player[:final_situation] < table.last[:final_situation]
         player_lost(table, player)
@@ -278,7 +315,7 @@ def player_lost(table, player)
 end
 
 def push(player)
-  puts "It's a push."
+  puts "It's a push for #{player[:name]}"
   player[:chips] += player[:bet]
   player[:bet] = 0
 end
@@ -289,7 +326,7 @@ def resolution(table) # Is it possible to do the same thing with only one ittera
   table.select {|participant| participant[:name != 'Dealer']}.each do 
     if participant[:chips] <= 0
       puts "#{participant[:name]} left the table." 
-    end    
+    end
   end
   if table.last[:chips] <= 0
     puts 'The dealer went bankrupt !'
@@ -306,6 +343,9 @@ end
 def clean_table(table)
   table.each do |participant|
     participant[:hand] = []
+    participant[:tokens] = []
+    participant[:final_situation] = ''
+    dealer_turn = false
   end
 end
 
@@ -325,17 +365,21 @@ def congratulate_winners(table)
   table.each {|winner| puts "Congratulation #{winner}!"}
 end
 
-### SEPARATORS
-
-def small_separator()
-  10.times {print '-'}
+def restart_countdown()
+  j = 3
+  
+  3.times do
+    system 'clear'
+    puts "the game will restart in"
+    print j
+    sleep 1
+    j -= 1
+  end
 end
 
-def medium_separator()
-  40.times {print '-'}
-end
+### SEPARATOR
 
-def big_separator()
+def separator()
   2.times do 
     80.times {print '-'}
     puts ''
@@ -353,30 +397,32 @@ dealer_turn = false
 
 
 
-
+system 'clear'
 set_table(nb_of_players(), table)
 
 puts "\nWelcome to the table.\n"
 
 loop do
-  dealer_turn = false
-
-  puts 'the game starts.'
-  print_table(table, dealer_turn)
-  binding.pry
+  system 'clear'
+  puts 'the game begins.'
+  sleep 2
 
   generate_deck(ranks, colors, deck)
-  begin_game(table, deck)
+  begin_game(table, deck) # begin_game asks the players how much they want to bet and deals an initial hand to each participant
   print_table(table, dealer_turn)
-  
+
   play(table, deck, dealer_turn)
   
   chip_distribution(table)
 
   resolution(table)
 
+  sleep 5
+  
   if !game_continues?(table)
     break
+  else
+    restart_countdown()
   end
 end
 
@@ -384,3 +430,4 @@ end
 # when to us '' and when to use "" -i.e. should I use '' each time "" is not necessary- or always use "" 
 #   unless I nead '' properties (since '' are converted to "" anyway in the return value)
 # print_table takes 2 arguments -table and total_value- total_value is calculated with a method that
+# is it possible to put a break statement inside a method inside a loop
